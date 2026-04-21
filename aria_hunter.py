@@ -224,11 +224,64 @@ def chat_with_aria(user_message, history):
     except Exception as e:
         return f"BRAIN ERROR: {str(e)}"
 
+def process_actions(response, history):
+    """
+    Automatically processes all non-destructive actions in a response.
+    Returns a combined observation string if successful, else None.
+    """
+    observations = []
+    
+    # 1. SEARCH
+    search_match = re.search(r'SEARCH: "(.*?)"', response)
+    if search_match:
+        query = search_match.group(1)
+        print(f"[Aria Researching]: {query}")
+        intel = web_search(query)
+        observations.append(f"Live Intel found for '{query}':\n{intel[:2000]}")
+            
+    # 2. SAVE (Memory)
+    save_match = re.search(r'SAVE: "(.*?)" \| "(.*?)"', response)
+    if save_match:
+        content, label = save_match.group(1), save_match.group(2)
+        print(f"[Aria Archiving]: {label}")
+        status = save_memory(content, label)
+        observations.append(f"Memory Save Status: {status}")
+            
+    # 3. RECALL (Memory)
+    recall_match = re.search(r'RECALL: "(.*?)"', response)
+    if recall_match:
+        query = recall_match.group(1)
+        print(f"[Aria Recalling]: {query}")
+        memories = recall_memory(query)
+        observations.append(f"Relevant Records for '{query}':\n{memories}")
+
+    # 4. VISION
+    vision_match = re.search(r'VISION: "(.*?)"', response)
+    if vision_match:
+        v_query = vision_match.group(1)
+        print(f"[Aria Opening Eyes]: {v_query}")
+        path, err = capture_screenshot()
+        if not err:
+            v_analysis = analyze_vision(path, v_query)
+            observations.append(f"Visual Analysis: {v_analysis}")
+        else:
+            observations.append(f"Vision Error: {err}")
+
+    # 5. BROWSE
+    browse_match = re.search(r'BROWSE: "(.*?)"', response)
+    if browse_match:
+        target_url = browse_match.group(1)
+        print(f"[Aria Browsing]: {target_url}")
+        content = web_browse(target_url)
+        observations.append(f"Content of {target_url}:\n{content}")
+
+    return "\n\n".join(observations) if observations else None
+
 if __name__ == "__main__":
     check_dependencies()
     init_db()
     print("\n" + "="*50)
-    print("      ARIA: GHOST PROTOCOL / STRATEGIC PARTNER")
+    print("      ARIA: GHOST PROTOCOL / TACTICAL AGENT")
     print("="*50 + "\n")
     
     history = []
@@ -237,78 +290,47 @@ if __name__ == "__main__":
         user_input = input("\n[You]: ")
         if user_input.lower() in ['exit', 'quit']: break
         
-        print("\n[Aria Thinking...]", end="\r")
-        response = chat_with_aria(user_input, history)
-        print(f"\n[Aria]: {response}")
+        current_response = chat_with_aria(user_input, history)
+        print(f"\n[Aria]: {current_response}")
         
-        # Check if Aria suggested a search
-        search_match = re.search(r'SEARCH: "(.*?)"', response)
-        if search_match:
-            query = search_match.group(1)
-            print(f"[Aria Researching]: {query}")
-            intel = web_search(query)
-            print(f"[Intel Found]:\n{intel[:500]}...")
-            response = chat_with_aria(f"Live Intel found for '{query}':\n{intel[:2000]}", history)
-            print(f"\n[Aria (Intel Analysis)]: {response}")
+        # --- SEAMLESS ACTION CHAINING ---
+        while True:
+            obs = process_actions(current_response, history)
+            if not obs: break # No more automated actions
             
-        # Check if Aria suggested a Memory Save
-        save_match = re.search(r'SAVE: "(.*?)" \| "(.*?)"', response)
-        if save_match:
-            content, label = save_match.group(1), save_match.group(2)
-            print(f"[Aria Archiving to Dumptruck]: {label}")
-            status = save_memory(content, label)
-            print(f" >> {status}")
+            # Feed observations back and get updated response
+            current_response = chat_with_aria(f"[Auto-Observation]:\n{obs}", history)
+            print(f"\n[Aria (Updated Plan)]: {current_response}")
             
-        # Check if Aria suggested a Memory Recall
-        recall_match = re.search(r'RECALL: "(.*?)"', response)
-        if recall_match:
-            query = recall_match.group(1)
-            print(f"[Aria Scanning Vault]: {query}")
-            memories = recall_memory(query)
-            print(f"[Results Found]:\n{memories}")
-            response = chat_with_aria(f"Relevant Vault Records for '{query}':\n{memories}", history)
-            print(f"\n[Aria (Deep Analysis)]: {response}")
-
-        # Check if Aria suggested a Vision Analysis
-        vision_match = re.search(r'VISION: "(.*?)"', response)
-        if vision_match:
-            v_query = vision_match.group(1)
-            print(f"[Aria Opening Eyes]: {v_query}")
-            path, err = capture_screenshot()
-            if err:
-                print(f" >> {err}")
-                response = chat_with_aria(f"Vision Capture Failed: {err}", history)
+        # --- BATCH COMMAND CONFIRMATION ---
+        # Capture all commands in the latest response
+        cmds = re.findall(r'```(?:bash|sh)?\n(.*?)\n```|`(.*?)`', current_response, re.DOTALL)
+        batch = [c[0].strip() if c[0] else c[1].strip() for c in cmds if (c[0] or c[1]).strip()]
+        
+        if batch:
+            print("\n[Tactical Proposal]")
+            for i, c in enumerate(batch, 1):
+                print(f" {i}. {c}")
+            
+            confirm = input(f"\nApprove all (y), Skip (n), or Discuss: ").lower()
+            
+            if confirm == 'y':
+                print(f"[Executing Batch...]")
+                results = []
+                for i, cmd in enumerate(batch, 1):
+                    print(f" >> Running {i}/{len(batch)}...", end="\r")
+                    res = run_command(cmd)
+                    results.append(f"Command [{cmd}] Output:\n{res}")
+                
+                final_obs = "\n\n".join(results)
+                final_resp = chat_with_aria(f"Batch Execution Results:\n{final_obs[:2000]}", history)
+                print(f"\n[Aria (Result Analysis)]: {final_resp}")
+            elif confirm == 'n':
+                print("[System] Batch skipped.")
             else:
-                print(f" >> Image captured. Analyzing on RTX 3070...")
-                v_analysis = analyze_vision(path, v_query)
-                print(f"[Visual Analysis]: {v_analysis}")
-                response = chat_with_aria(f"Visual Analysis of desktop: {v_analysis}", history)
-                print(f"\n[Aria (Visual Insight)]: {response}")
-
-        # Check if Aria suggested a Web Browse
-        browse_match = re.search(r'BROWSE: "(.*?)"', response)
-        if browse_match:
-            target_url = browse_match.group(1)
-            print(f"[Aria Observing URL]: {target_url}")
-            page_content = web_browse(target_url)
-            print(f"[Content Ingested]: {len(page_content)} chars")
-            response = chat_with_aria(f"Content of {target_url}:\n{page_content}", history)
-            print(f"\n[Aria (Web Analysis)]: {response}")
-
-        # Check if Aria suggested a command
-        # Regex improvements: Capture all code blocks (single or triple backticks)
-        cmds = re.findall(r'```(?:bash|sh)?\n(.*?)\n```|`(.*?)`', response, re.DOTALL)
-        for cmd_tuple in cmds:
-            # findall returns a list of tuples if there are multiple groups
-            cmd = cmd_tuple[0] if cmd_tuple[0] else cmd_tuple[1]
-            if not cmd.strip(): continue
-            
-            confirm = input(f"\n[System]: Aria has a tactical suggestion: \n{cmd}\nRun stealthily? (y/n/discuss): ")
-            if confirm.lower() == 'y':
-                print(f"[Executing on Kali VM...]")
-                obs = run_command(cmd)
-                print(f"[Observation]:\n{obs[:1000]}")
-                response = chat_with_aria(f"Command Output: {obs[:1000]}", history)
-                print(f"\n[Aria (Result Analysis)]: {response}")
-            elif confirm.lower() == 'discuss':
-                continue
+                # Treat as discussion
+                print(f"[System] Sending feedback to Aria...")
+                final_resp = chat_with_aria(f"[Tactical Feedback]: {confirm}", history)
+                print(f"\n[Aria (Updated Strategy)]: {final_resp}")
+                # Note: This doesn't re-loop for actions/commands in THIS turn,
+                # but the top-level loop will catch them on the next turn.
